@@ -8,6 +8,7 @@ app.use(cors());
 
 const PORT = 3001;
 
+
 // 1. Página inicial
 app.get('/', (req, res) => {
   res.send(`<a href="https://www.nuvemshop.com.br/apps/${process.env.CLIENT_ID}/authorize">Instalar app</a>`);
@@ -130,6 +131,37 @@ app.get('/injetar-script', async (req, res) => {
     res.status(500).send("Erro ao injetar script");
   }
 });
+
+// Rota para listar os arquivos do tema
+app.get('/listar-arquivos-tema', async (req, res) => {
+  const token = "25ca4db565aaa76c308df90ba07664d6cb0f4791";
+  const userId = "6247822";
+
+  try {
+    const temas = await axios.get(`https://api.nuvemshop.com.br/v1/${userId}/themes`, {
+      headers: {
+        'Authentication': `bearer ${token}`
+      }
+    });
+
+    const temaAtivo = temas.data.find(t => t.active);
+    if (!temaAtivo) return res.status(404).send("Tema ativo não encontrado");
+
+    const themeId = temaAtivo.id;
+
+    const arquivos = await axios.get(`https://api.nuvemshop.com.br/v1/${userId}/themes/${themeId}/files`, {
+      headers: {
+        'Authentication': `bearer ${token}`
+      }
+    });
+
+    res.json(arquivos.data);
+  } catch (err) {
+    console.error("Erro ao listar arquivos:", err.response?.data || err.message);
+    res.status(500).send("Erro ao listar arquivos");
+  }
+});
+
 
 // 🔚 Start do servidor (deve ficar sempre no final!)
 app.listen(PORT, () => {
