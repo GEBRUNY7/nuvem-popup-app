@@ -289,3 +289,55 @@ app.listen(PORT, () => {
   console.log(`Servidor rodando na porta ${PORT}`);
   console.log(`URL do app: ${process.env.APP_URL}`);
 });
+
+// ... (mantenha suas configurações existentes)
+
+// Rota de status - verifica conexão com a Nuvemshop
+app.get('/status', async (req, res) => {
+  try {
+    const { access_token, user_id } = req.query;
+    
+    if (!access_token || !user_id) {
+      return res.status(400).json({ 
+        status: 'error',
+        message: 'Access token e user ID são necessários' 
+      });
+    }
+
+    // Testa uma chamada simples à API
+    const response = await axios.get(
+      `https://api.nuvemshop.com.br/v1/${user_id}/store`,
+      {
+        headers: {
+          'Authentication': `bearer ${access_token}`
+        }
+      }
+    );
+
+    res.json({
+      status: 'success',
+      message: 'Conexão com a Nuvemshop API está funcionando',
+      store: response.data.name,
+      url: response.data.url
+    });
+  } catch (error) {
+    console.error('Erro no status check:', error.response?.data || error.message);
+    res.status(500).json({
+      status: 'error',
+      message: 'Falha na conexão com a Nuvemshop API',
+      error: error.response?.data || error.message
+    });
+  }
+});
+
+// Rota de health check básica
+app.get('/health', (req, res) => {
+  res.json({
+    status: 'up',
+    app: 'Poppop',
+    version: '1.0',
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+// ... (mantenha o restante do seu código existente)
