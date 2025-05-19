@@ -11,56 +11,58 @@ const PORT = process.env.PORT || 3001;
 
 // Configurações da Nuvemshop API
 const NUVEMSHOP_API = 'https://api.nuvemshop.com.br/v1';
-const AUTH_URL = 'https://www.nuvemshop.com.br/apps/token';
+const AUTH_URL = 'https://www.nuvemshop.com.br/apps/authorize/token';
 
-// Middleware para autenticação
-const authenticateStore = async (req, res, next) => {
-  try {
-    const { access_token, user_id } = req.query;
-    
-    if (!access_token || !user_id) {
-      return res.status(400).json({ error: 'Token de acesso e ID da loja são necessários' });
-    }
-
-    req.store = {
-      token: access_token,
-      userId: user_id
-    };
-    
-    next();
-  } catch (error) {
-    console.error('Erro na autenticação:', error);
-    res.status(500).json({ error: 'Erro na autenticação' });
-  }
+// Variáveis do seu app (substitua pelas suas)
+const APP_CONFIG = {
+  CLIENT_ID: '17937',
+  CLIENT_SECRET: '162efe3a9db6f1bf00fe1bda9603f2535ee45a700ff315ba',
+  REDIRECT_URI: 'https://nuvem-popup-app.vercel.app/auth/callback',
+  APP_URL: 'https://nuvem-popup-app.vercel.app'
 };
 
-// 1. Página inicial
+// 1. Página inicial - Link de instalação
 app.get('/', (req, res) => {
   res.send(`
     <h1>Poppop - Notificações de Prova Social</h1>
-    <a href="https://www.nuvemshop.com.br/apps/${process.env.CLIENT_ID}/authorize">
+    <a href="https://www.nuvemshop.com.br/apps/${APP_CONFIG.CLIENT_ID}/authorize">
       Instalar app na minha loja
     </a>
+    <p>App ID: ${APP_CONFIG.CLIENT_ID}</p>
   `);
 });
 
-// 2. OAuth callback
+// 2. Rotas de Termos e Política (obrigatórias)
+app.get('/terms', (req, res) => {
+  res.send('<h1>Termos de Serviço</h1><p>Conteúdo dos termos...</p>');
+});
+
+app.get('/privacy', (req, res) => {
+  res.send('<h1>Política de Privacidade</h1><p>Conteúdo da política...</p>');
+});
+
+// 3. Callback OAuth
 app.get('/auth/callback', async (req, res) => {
   try {
     const { code } = req.query;
     if (!code) return res.status(400).send('Código de autorização ausente');
 
-    const response = await axios.post(AUTH_URL, {
-      client_id: process.env.CLIENT_ID,
-      client_secret: process.env.CLIENT_SECRET,
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: process.env.REDIRECT_URI
+    const params = new URLSearchParams();
+    params.append('client_id', APP_CONFIG.CLIENT_ID);
+    params.append('client_secret', APP_CONFIG.CLIENT_SECRET);
+    params.append('grant_type', 'authorization_code');
+    params.append('code', code);
+    params.append('redirect_uri', APP_CONFIG.REDIRECT_URI);
+
+    const response = await axios.post(AUTH_URL, params.toString(), {
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded'
+      }
     });
 
     const { access_token, user_id } = response.data;
     
-    // Redireciona para uma página de sucesso com os tokens
+    // Redireciona para página de sucesso com os tokens
     res.redirect(`/success?access_token=${access_token}&user_id=${user_id}`);
   } catch (error) {
     console.error('Erro no callback:', error.response?.data || error.message);
@@ -72,27 +74,73 @@ app.get('/auth/callback', async (req, res) => {
   }
 });
 
-// Página de sucesso após autenticação
+// 4. Página de sucesso pós-instalação
 app.get('/success', (req, res) => {
+  const { access_token, user_id } = req.query;
+  
   res.send(`
     <h2>✅ Aplicativo instalado com sucesso!</h2>
-    <p>Você pode fechar esta aba e voltar para o painel da sua loja.</p>
-    <button onclick="injectScript()">Configurar Notificações</button>
+    <p>User ID: ${user_id}</p>
+    <button onclick="configureApp()">Configurar Notificações</button>
     <script>
-      async function injectScript() {
+      async function configureApp() {
         try {
-          const response = await fetch('/injetar-script?access_token=${req.query.access_token}&user_id=${req.query.user_id}');
+          const response = await fetch('/injetar-script', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': 'Bearer ${access_token}'
+            },
+            body: JSON.stringify({ user_id: '${user_id}' })
+          });
           const result = await response.json();
-          alert(result.message || 'Script configurado com sucesso!');
+          alert(result.message || 'Configuração completa!');
         } catch (error) {
-          alert('Erro ao configurar: ' + error.message);
+          alert('Erro: ' + error.message);
         }
       }
     </script>
   `);
 });
 
-// 3. Notificações fake
+// 5. Injeção do Script (método recomendado via API de Scripts)
+app.post('/injetar-script', async (req, res) => {
+  try {
+    const { user_id } = req.body;
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader) return res.status(401).json({ error: 'Token não fornecido' });
+    
+    const token = authHeader.split(' ')[1]; // Remove "Bearer "
+
+    // 1. Registrar via API de Scripts
+    const scriptResponse = await axios.post(
+      `${NUVEMSHOP_API}/${user_id}/scripts`,
+      {
+        src: `${APP_CONFIG.APP_URL}/widget.js`,
+        event: "onload",
+        where: "store",
+        description: "Poppop - Notificações de prova social"
+      },
+      { headers: { 'Authentication': `bearer ${token}` } }
+    );
+
+    res.json({ 
+      success: true,
+      message: 'Widget instalado com sucesso via API de Scripts',
+      data: scriptResponse.data
+    });
+  } catch (error) {
+    console.error('Erro ao injetar script:', error.response?.data || error.message);
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      details: error.response?.data
+    });
+  }
+});
+
+// 6. Notificações Fake (endpoint para o widget)
 app.get('/notificacao', (req, res) => {
   const produtosFake = [
     { nome: 'Vestido Longo Floral', cliente: 'Juliana de Recife', link: '/produtos/vestido-longo-floral' },
@@ -103,153 +151,33 @@ app.get('/notificacao', (req, res) => {
   res.json(produtosFake[Math.floor(Math.random() * produtosFake.length)]);
 });
 
-// 4. Injetar script (usando API de Scripts)
-app.post('/injetar-script', authenticateStore, async (req, res) => {
-  try {
-    const { token, userId } = req.store;
-
-    // Primeiro tentamos registrar via API de Scripts
-    try {
-      const scriptResponse = await axios.post(
-        `${NUVEMSHOP_API}/${userId}/scripts`,
-        {
-          src: `${process.env.APP_URL}/widget.js`,
-          event: "onload",
-          where: "store",
-          description: "Poppop - Notificações de prova social"
-        },
-        { headers: { 'Authentication': `bearer ${token}` } }
-      );
-
-      return res.json({ 
-        success: true, 
-        message: 'Script registrado com sucesso via API de Scripts',
-        data: scriptResponse.data
-      });
-    } catch (apiError) {
-      console.log('Falha na API de Scripts, tentando modificação de tema...');
-    }
-
-    // Fallback: Modificação de arquivo de tema
-    const themes = await axios.get(`${NUVEMSHOP_API}/${userId}/themes`, {
-      headers: { 'Authentication': `bearer ${token}` }
-    });
-
-    const activeTheme = themes.data.find(t => t.active);
-    if (!activeTheme) throw new Error('Nenhum tema ativo encontrado');
-
-    const themeId = activeTheme.id;
-    const files = await axios.get(`${NUVEMSHOP_API}/${userId}/themes/${themeId}/files`, {
-      headers: { 'Authentication': `bearer ${token}` }
-    });
-
-    // Procuramos por arquivos que possam conter a tag </body>
-    const targetFiles = files.data.filter(file => 
-      file.path.match(/(layout|theme|index)\.(tpl|liquid|html)/i)
-    );
-
-    if (targetFiles.length === 0) {
-      throw new Error('Nenhum arquivo de tema adequado encontrado');
-    }
-
-    // Tentamos modificar cada arquivo até ter sucesso
-    for (const file of targetFiles) {
-      try {
-        const fileContent = await axios.get(`${NUVEMSHOP_API}/${userId}/themes/${themeId}/files/${file.path}`, {
-          headers: { 'Authentication': `bearer ${token}` }
-        });
-
-        let content = fileContent.data.content;
-        if (content.includes(process.env.APP_URL)) {
-          continue; // Já contém nosso script
-        }
-
-        if (content.includes('</body>')) {
-          const newContent = content.replace(
-            '</body>', 
-            `<script src="${process.env.APP_URL}/widget.js"></script>\n</body>`
-          );
-
-          await axios.put(
-            `${NUVEMSHOP_API}/${userId}/themes/${themeId}/files/${file.path}`,
-            { content: newContent },
-            { headers: { 
-              'Authentication': `bearer ${token}`,
-              'Content-Type': 'application/json'
-            }}
-          );
-
-          return res.json({ 
-            success: true, 
-            message: `Script injetado com sucesso no arquivo ${file.path}`,
-            file: file.path
-          });
-        }
-      } catch (fileError) {
-        console.error(`Erro ao processar arquivo ${file.path}:`, fileError.message);
-        continue;
-      }
-    }
-
-    throw new Error('Não foi possível injetar o script em nenhum arquivo do tema');
-  } catch (error) {
-    console.error('Erro ao injetar script:', error.message);
-    res.status(500).json({ 
-      success: false, 
-      error: error.message,
-      suggestion: 'Por favor, adicione manualmente o script ao seu tema'
-    });
-  }
-});
-
-// 5. Listar arquivos do tema (para debug)
-app.get('/listar-arquivos-tema', authenticateStore, async (req, res) => {
-  try {
-    const { token, userId } = req.store;
-
-    const themes = await axios.get(`${NUVEMSHOP_API}/${userId}/themes`, {
-      headers: { 'Authentication': `bearer ${token}` }
-    });
-
-    const activeTheme = themes.data.find(t => t.active);
-    if (!activeTheme) throw new Error('Nenhum tema ativo encontrado');
-
-    const files = await axios.get(`${NUVEMSHOP_API}/${userId}/themes/${activeTheme.id}/files`, {
-      headers: { 'Authentication': `bearer ${token}` }
-    });
-
-    res.json({
-      theme: activeTheme,
-      files: files.data.map(file => ({
-        path: file.path,
-        type: file.type,
-        size: file.size
-      }))
-    });
-  } catch (error) {
-    console.error('Erro ao listar arquivos:', error.message);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Rota para o widget.js
+// 7. Widget JS
 app.get('/widget.js', (req, res) => {
   res.type('application/javascript');
   res.send(`
     (function() {
-      console.log('Poppop Widget carregado');
+      console.log('[Poppop] Widget carregado');
+      
+      const config = {
+        apiUrl: '${APP_CONFIG.APP_URL}/notificacao',
+        interval: 30000
+      };
       
       function showNotification(data) {
         const popup = document.createElement('div');
-        popup.style.position = 'fixed';
-        popup.style.bottom = '20px';
-        popup.style.right = '20px';
-        popup.style.padding = '15px';
-        popup.style.background = '#fff';
-        popup.style.borderRadius = '8px';
-        popup.style.boxShadow = '0 4px 12px rgba(0,0,0,0.15)';
-        popup.style.zIndex = '9999';
-        popup.style.maxWidth = '300px';
+        popup.style.cssText = \`
+          position: fixed;
+          bottom: 20px;
+          right: 20px;
+          padding: 15px;
+          background: #fff;
+          border-radius: 8px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+          z-index: 9999;
+          max-width: 300px;
+          transition: opacity 0.5s;
+        \`;
+        
         popup.innerHTML = \`
           <div style="display: flex; align-items: center; gap: 10px;">
             <div style="color: #ff4757; font-size: 24px;">🔥</div>
@@ -263,74 +191,42 @@ app.get('/widget.js', (req, res) => {
         document.body.appendChild(popup);
         
         setTimeout(() => {
-          popup.style.transition = 'opacity 0.5s';
           popup.style.opacity = '0';
           setTimeout(() => popup.remove(), 500);
         }, 5000);
       }
       
-      // Busca notificação inicial
-      fetch('${process.env.APP_URL}/notificacao')
-        .then(res => res.json())
-        .then(showNotification);
+      async function fetchNotification() {
+        try {
+          const response = await fetch(config.apiUrl);
+          return await response.json();
+        } catch (error) {
+          console.error('[Poppop] Erro:', error);
+          return null;
+        }
+      }
       
-      // Atualiza a cada 30 segundos
-      setInterval(() => {
-        fetch('${process.env.APP_URL}/notificacao')
-          .then(res => res.json())
-          .then(showNotification);
-      }, 30000);
+      // Inicia
+      async function init() {
+        const data = await fetchNotification();
+        if (data) showNotification(data);
+        
+        setInterval(async () => {
+          const newData = await fetchNotification();
+          if (newData) showNotification(newData);
+        }, config.interval);
+      }
+      
+      if (document.readyState === 'complete') {
+        init();
+      } else {
+        window.addEventListener('DOMContentLoaded', init);
+      }
     })();
   `);
 });
 
-// Iniciar servidor
-app.listen(PORT, () => {
-  console.log(`Servidor rodando na porta ${PORT}`);
-  console.log(`URL do app: ${process.env.APP_URL}`);
-});
-
-// ... (mantenha suas configurações existentes)
-
-// Rota de status - verifica conexão com a Nuvemshop
-app.get('/status', async (req, res) => {
-  try {
-    const { access_token, user_id } = req.query;
-    
-    if (!access_token || !user_id) {
-      return res.status(400).json({ 
-        status: 'error',
-        message: 'Access token e user ID são necessários' 
-      });
-    }
-
-    // Testa uma chamada simples à API
-    const response = await axios.get(
-      `https://api.nuvemshop.com.br/v1/${user_id}/store`,
-      {
-        headers: {
-          'Authentication': `bearer ${access_token}`
-        }
-      }
-    );
-
-    res.json({
-      status: 'success',
-      message: 'Conexão com a Nuvemshop API está funcionando',
-      store: response.data.name,
-      url: response.data.url
-    });
-  } catch (error) {
-    console.error('Erro no status check:', error.response?.data || error.message);
-    res.status(500).json({
-      status: 'error',
-      message: 'Falha na conexão com a Nuvemshop API',
-      error: error.response?.data || error.message
-    });
-  }
-});
-
-// Rota de health check básica
+// 8. Health Check
 app.get('/health', (req, res) => {
   res.json({
     status: 'up',
@@ -340,4 +236,8 @@ app.get('/health', (req, res) => {
   });
 });
 
-// ... (mantenha o restante do seu código existente)
+// Iniciar servidor
+app.listen(PORT, () => {
+  console.log(`Servidor rodando na porta ${PORT}`);
+  console.log(`URL do app: ${APP_CONFIG.APP_URL}`);
+});
