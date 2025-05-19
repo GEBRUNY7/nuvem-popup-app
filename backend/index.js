@@ -138,29 +138,34 @@ app.get('/listar-arquivos-tema', async (req, res) => {
   const userId = "6247822";
 
   try {
+    console.log("🔍 Buscando temas...");
+
     const temas = await axios.get(`https://api.nuvemshop.com.br/v1/${userId}/themes`, {
-      headers: {
-        'Authentication': `bearer ${token}`
-      }
+      headers: { 'Authentication': `bearer ${token}` }
     });
 
+    console.log("📦 Temas encontrados:", temas.data);
+
     const temaAtivo = temas.data.find(t => t.active);
-    if (!temaAtivo) return res.status(404).send("Tema ativo não encontrado");
+    if (!temaAtivo) {
+      console.log("❌ Nenhum tema ativo encontrado");
+      return res.status(404).send("Tema ativo não encontrado");
+    }
 
     const themeId = temaAtivo.id;
+    console.log("🎯 ID do tema ativo:", themeId);
 
     const arquivos = await axios.get(`https://api.nuvemshop.com.br/v1/${userId}/themes/${themeId}/files`, {
-      headers: {
-        'Authentication': `bearer ${token}`
-      }
+      headers: { 'Authentication': `bearer ${token}` }
     });
 
     res.json(arquivos.data);
   } catch (err) {
-    console.error("Erro ao listar arquivos:", err.response?.data || err.message);
+    console.error("❌ Erro ao listar arquivos:", err.response?.data || err.message);
     res.status(500).send("Erro ao listar arquivos");
   }
 });
+
 
 
 // 🔚 Start do servidor (deve ficar sempre no final!)
