@@ -14,20 +14,20 @@ app.get('/', (req, res) => {
   res.send(`<a href="https://www.nuvemshop.com.br/apps/${process.env.CLIENT_ID}/authorize">Instalar app</a>`);
 });
 
+
 // 2. OAuth callback
 app.get('/auth/callback', async (req, res) => {
   const code = req.query.code;
   if (!code) return res.status(400).send('Código de autorização ausente');
 
   try {
-    const response = await axios.post('https://www.nuvemshop.com.br/apps/token', {
-      client_id: process.env.CLIENT_ID,
-      client_secret: process.env.CLIENT_SECRET,
-      grant_type: 'authorization_code',
-      code,
-      redirect_uri: process.env.REDIRECT_URI
-    });
-
+ const response = await axios.post('https://www.nuvemshop.com.br/apps/token', {
+  client_id: process.env.CLIENT_ID,
+  client_secret: process.env.CLIENT_SECRET,
+  grant_type: 'authorization_code',
+  code,
+  redirect_uri: process.env.REDIRECT_URI
+});
     const { access_token, user_id } = response.data;
 
     console.log('✅ Token:', access_token);
