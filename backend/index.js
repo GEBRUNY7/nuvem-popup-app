@@ -71,47 +71,63 @@ app.listen(PORT, () => {
 });
 
 app.get('/injetar-script', async (req, res) => {
-  const token = "25ca4db565aaa76c308df90ba07664d6cb0f4791";
-  const userId = "6247822";
+  const token = "25ca4db565aaa76c308df90ba07664d6cb0f4791"; // seu access_token
+  const userId = "6247822"; // id da loja conectada
 
   try {
     // 1. Buscar temas
     const temas = await axios.get(`https://api.nuvemshop.com.br/v1/${userId}/themes`, {
       headers: {
-        'Authentication': `bearer ${token}`,
-        'Content-Type': 'application/json'
+        'Authentication': `bearer ${token}`
       }
     });
 
     const temaAtivo = temas.data.find(t => t.active);
-    if (!temaAtivo) return res.status(404).send("Nenhum tema ativo encontrado.");
+    if (!temaAtivo) return res.status(404).send("Tema ativo não encontrado");
 
     const themeId = temaAtivo.id;
-    console.log("Tema ativo:", themeId);
 
-    // 2. Buscar layout.tpl
-    const layoutAtual = await axios.get(`https://api.nuvemshop.com.br/v1/${userId}/themes/${themeId}/files/templates/layout.tpl`, {
+    // 2. Buscar arquivos do tema
+    const arquivos = await axios.get(`https://api.nuvemshop.com.br/v1/${userId}/themes/${themeId}/files`, {
       headers: {
-        'Authentication': `bearer ${token}`,
-        'Content-Type': 'application/json'
+        'Authentication': `bearer ${token}`
       }
     });
 
-    let layout = layoutAtual.data.content;
+    // 3. Achar template principal (ex: layout.tpl ou index.tpl)
+    const tpl = arquivos.data.find(file =>
+      file.path.includes('layout.tpl') || file.path.includes('index.tpl')
+    );
 
-    // 3. Verifica se já foi injetado
+    if (!tpl) return res.status(404).send("Arquivo principal .tpl não encontrado");
+
+    const filePath = tpl.path;
+
+    // 4. Buscar conteúdo atual
+    const conteudo = await axios.get(`https://api.nuvemshop.com.br/v1/${userId}/themes/${themeId}/files/${filePath}`, {
+      headers: {
+        'Authentication': `bearer ${token}`
+      }
+    });
+
+    let layout = conteudo.data.content;
+
     if (layout.includes("widget.js")) {
-      return res.send("Script já foi injetado.");
+      return res.send("✅ Script já está injetado.");
     }
 
-    // 4. Injetar script antes do </body>
-    const scriptTag = `<script src="https://seuapp.vercel.app/widget.js"></script>\n</body>`;
-    const layoutModificado = layout.replace("</body>", scriptTag);
+    if (!layout.includes("</body>")) {
+      return res.status(400).send("⚠️ Não foi possível encontrar </body> no layout.");
+    }
 
-    // 5. Enviar novo layout
+    // 5. Injeta o script
+    const script = `<script src="https://nuvem-popup-app.vercel.app/widget.js"></script>\n</body>`;
+    const novoLayout = layout.replace("</body>", script);
+
+    // 6. Atualiza o arquivo no tema
     await axios.put(
-      `https://api.nuvemshop.com.br/v1/${userId}/themes/${themeId}/files/templates/layout.tpl`,
-      { content: layoutModificado },
+      `https://api.nuvemshop.com.br/v1/${userId}/themes/${themeId}/files/${filePath}`,
+      { content: novoLayout },
       {
         headers: {
           'Authentication': `bearer ${token}`,
@@ -120,38 +136,9 @@ app.get('/injetar-script', async (req, res) => {
       }
     );
 
-    res.send("✅ Script injetado com sucesso!");
+    res.send("✅ Script injetado com sucesso no tema!");
   } catch (err) {
     console.error("Erro ao injetar script:", err.response?.data || err.message);
     res.status(500).send("Erro ao injetar script");
-  }
-});
-
-app.get('/listar-arquivos-tema', async (req, res) => {
-  const token = "25ca4db565aaa76c308df90ba07664d6cb0f4791";
-  const userId = "6247822";
-
-  try {
-    const temas = await axios.get(`https://api.nuvemshop.com.br/v1/${userId}/themes`, {
-      headers: {
-        'Authentication': `bearer ${token}`
-      }
-    });
-
-    const temaAtivo = temas.data.find(t => t.active);
-    if (!temaAtivo) return res.status(404).send("Nenhum tema ativo encontrado.");
-
-    const themeId = temaAtivo.id;
-
-    const arquivos = await axios.get(`https://api.nuvemshop.com.br/v1/${userId}/themes/${themeId}/files`, {
-      headers: {
-        'Authentication': `bearer ${token}`
-      }
-    });
-
-    res.json(arquivos.data);
-  } catch (err) {
-    console.error("Erro ao listar arquivos:", err.response?.data || err.message);
-    res.status(500).send("Erro ao listar arquivos");
   }
 });
